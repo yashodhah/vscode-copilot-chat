@@ -4,6 +4,8 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { HookCallbackMatcher, HookEvent, HookInput, HookJSONOutput, McpServerConfig, Options, PermissionMode, PreToolUseHookInput, Query, SDKAssistantMessage, SDKResultMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+// [DEBUG EXPLORATION] Remove when done exploring
+import { explorerTrace } from '../../../extension/vscode/debugExplorer';
 import { TodoWriteInput } from '@anthropic-ai/claude-agent-sdk/sdk-tools';
 import Anthropic from '@anthropic-ai/sdk';
 import * as l10n from '@vscode/l10n';
@@ -79,6 +81,17 @@ export class ClaudeAgentManager extends Disposable {
 			const langModelServer = await this.getLangModelServer();
 			const serverConfig = langModelServer.getConfig();
 
+			// [EXPLORE] Claude Agent SDK is invoked via a local HTTP server (ClaudeLanguageModelServer)
+			// WHY: The Claude Agent SDK was designed to call Anthropic's API directly.
+			// The HTTP server translates between Anthropic's protocol and VS Code's LM API,
+			// allowing the Claude CLI to use whatever model VS Code has configured (GPT-4, etc.)
+			explorerTrace('CLAUDE_AGENT', 'ClaudeAgentManager.handleRequest: dispatching to Claude Agent SDK', {
+				claudeSessionId,
+				modelId,
+				permissionMode: String(permissionMode),
+				isNewSession,
+				serverPort: serverConfig.port,
+			});
 			this.logService.trace(`[ClaudeAgentManager] Handling request for sessionId=${claudeSessionId}, modelId=${modelId}, permissionMode=${permissionMode}.`);
 			let session: ClaudeCodeSession;
 			if (this._sessions.has(claudeSessionId)) {

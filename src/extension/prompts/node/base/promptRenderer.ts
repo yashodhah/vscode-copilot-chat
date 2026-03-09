@@ -4,6 +4,8 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { BasePromptElementProps, PromptRenderer as BasePromptRenderer, HTMLTracer, ITokenizer, JSONTree, MetadataMap, OutputMode, QueueItem, Raw, RenderPromptResult } from '@vscode/prompt-tsx';
+// [DEBUG EXPLORATION] Remove when done exploring
+import { explorerTrace } from '../../../extension/vscode/debugExplorer';
 import type { ChatResponsePart, ChatResponseProgressPart, LanguageModelToolTokenizationOptions, Progress } from 'vscode';
 import { ChatLocation } from '../../../../platform/chat/common/commonTypes';
 import { toTextPart } from '../../../../platform/chat/common/globalStringUtils';
@@ -101,6 +103,8 @@ export class PromptRenderer<P extends BasePromptElementProps> extends BasePrompt
 	}
 
 	override async render(progress?: Progress<ChatResponsePart> | undefined, token?: CancellationToken | undefined, opts?: Partial<{ trace: boolean }>): Promise<RenderPromptResult> {
+		// [EXPLORE] This is where @vscode/prompt-tsx renders the prompt tree into messages
+		explorerTrace('PROMPT', `PromptRenderer.render(): ${this.ctorName ?? '<unnamed>'}`, { model: this.endpoint.model });
 		const result = await super.render(progress, token);
 		const defaultOptions = { trace: true };
 		opts = { ...defaultOptions, ...opts };
@@ -130,6 +134,8 @@ export class PromptRenderer<P extends BasePromptElementProps> extends BasePrompt
 		}
 
 		const references = result.references.filter(ref => this.validateReference(ref));
+		// [EXPLORE] Prompt rendered: shows token usage and message structure
+		explorerTrace('PROMPT', `PromptRenderer.render() done`, { tokenCount: result.tokenCount, messageCount: result.messages.length, referenceCount: references.length });
 		this._instantiationService.dispose(); // Dispose the hydrated instantiation service
 		return { ...result, references: getUniqueReferences(references) };
 	}
