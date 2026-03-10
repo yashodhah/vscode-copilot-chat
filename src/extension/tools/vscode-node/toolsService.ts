@@ -5,6 +5,8 @@
 
 import * as vscode from 'vscode';
 import { ILogService } from '../../../platform/log/common/logService';
+// [DEBUG EXPLORATION] Remove when done exploring
+import { explorerTrace } from '../../extension/vscode/debugExplorer';
 import { IChatEndpoint } from '../../../platform/networking/common/networking';
 import { emitToolCallEvent, GenAiAttr, GenAiMetrics, GenAiOperationName, GenAiToolType, StdAttr, truncateForOTel } from '../../../platform/otel/common/index';
 import { IOTelService, SpanKind, SpanStatusCode } from '../../../platform/otel/common/otelService';
@@ -118,6 +120,8 @@ export class ToolsService extends BaseToolsService {
 
 	invokeTool(name: string | ToolName, options: vscode.LanguageModelToolInvocationOptions<Object>, token: vscode.CancellationToken): Thenable<vscode.LanguageModelToolResult | vscode.LanguageModelToolResult2> {
 		this._onWillInvokeTool.fire({ toolName: name });
+		// [EXPLORE] Every tool call goes through here - this is the agent loop heartbeat
+		explorerTrace('TOOL', `invokeTool: ${name}`, { hasInput: !!options.input });
 
 		const isMcpTool = String(name).includes('mcp_');
 		const toolInfo = this.tools.find(t => t.name === String(name));
