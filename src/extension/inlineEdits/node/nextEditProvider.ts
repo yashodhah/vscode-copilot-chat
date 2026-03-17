@@ -4,6 +4,8 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { basename } from 'path';
+// [DEBUG EXPLORATION] Remove when done exploring
+import { explorerTrace } from '../../extension/vscode/debugExplorer';
 import type * as vscode from 'vscode';
 import { ConfigKey, IConfigurationService } from '../../../platform/configuration/common/configurationService';
 import { DocumentId } from '../../../platform/inlineEdits/common/dataTypes/documentId';
@@ -226,6 +228,13 @@ export class NextEditProvider extends Disposable implements INextEditProvider<Ne
 		cancellationToken: CancellationToken,
 		telemetryBuilder: LlmNESTelemetryBuilder
 	): Promise<NextEditResult> {
+		// [EXPLORE] Entry to NES (Next Edit Suggestion) pipeline - triggers on every keystroke
+		explorerTrace('INLINE_EDIT', 'NextEditProvider.getNextEdit() triggered', {
+			docId: String(docId),
+			hasChangeHint: !!context.changeHint,
+			enforceCacheDelay: context.enforceCacheDelay,
+			hasSpeculative: !!this._speculativePendingRequest,
+		});
 		const now = Date.now();
 
 		this._lastTriggerTime = now;
@@ -1126,6 +1135,14 @@ export class NextEditProvider extends Disposable implements INextEditProvider<Ne
 		{ triggeredBySpeculativeRequest, isSubsequentEdit }: { triggeredBySpeculativeRequest: boolean; isSubsequentEdit: boolean },
 		parentLogger: ILogger
 	): Promise<StatelessNextEditRequest<CachedOrRebasedEdit> | undefined> {
+		// [EXPLORE] Key architectural pattern: speculative prefetch fires when suggestion is shown.
+		// This hides latency by pre-fetching the NEXT next-edit assuming the user will accept.
+		// WHY: User acceptance is fast (<100ms), LLM call is slow (500-2000ms). Without this,
+		// there would always be a visible delay between accept and next suggestion appearing.
+		explorerTrace('INLINE_EDIT', '_createSpeculativeRequest: prefetching post-accept state', {
+			triggeredBySpeculativeRequest,
+			isSubsequentEdit,
+		});
 		const curDocId = doc.id;
 
 		const recording = this._debugRecorder?.getRecentLog();

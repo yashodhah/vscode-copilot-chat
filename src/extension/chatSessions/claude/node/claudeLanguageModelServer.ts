@@ -4,6 +4,8 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { MessageParam } from '@anthropic-ai/sdk/resources';
+// [DEBUG EXPLORATION] Remove when done exploring
+import { explorerTrace } from '../../../extension/vscode/debugExplorer';
 import { RequestMetadata, RequestType } from '@vscode/copilot-api';
 import { Raw } from '@vscode/prompt-tsx';
 import * as http from 'http';
@@ -149,11 +151,22 @@ export class ClaudeLanguageModelServer extends Disposable {
 	}
 
 	private async handleAuthedMessagesRequest(bodyString: string, headers: http.IncomingHttpHeaders, res: http.ServerResponse, sessionId: string | undefined): Promise<void> {
+		// [EXPLORE] HTTP bridge: Claude Agent SDK → VS Code LM API.
+		// WHY HTTP server? The Anthropic SDK is built around HTTP, and this bridge lets the Claude
+		// Agent SDK (which was designed to call Anthropic's API directly) work through VS Code's
+		// language model abstraction layer instead - enabling model swapping, quota management, etc.
+		const requestBody = JSON.parse(bodyString) as AnthropicMessagesRequest;
+		explorerTrace('CLAUDE_HTTP', 'handleAuthedMessagesRequest: translating Anthropic API → VS Code LM', {
+			model: requestBody.model,
+			messageCount: requestBody.messages?.length ?? 0,
+			toolCount: requestBody.tools?.length ?? 0,
+			stream: requestBody.stream,
+			sessionId,
+		});
 		// Create cancellation token for the request
 		const tokenSource = new CancellationTokenSource();
 
 		try {
-			const requestBody: AnthropicMessagesRequest = JSON.parse(bodyString);
 
 			const allEndpoints = await this.endpointProvider.getAllChatEndpoints();
 			// Filter to only endpoints that support the Messages API

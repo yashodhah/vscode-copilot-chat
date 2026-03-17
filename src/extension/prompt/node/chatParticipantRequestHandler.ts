@@ -5,6 +5,8 @@
 
 import * as l10n from '@vscode/l10n';
 import type { ChatRequest, ChatRequestTurn2, ChatResponseStream, ChatResult, Location } from 'vscode';
+// [DEBUG EXPLORATION] Remove when done exploring
+import { explorerTrace } from '../../extension/vscode/debugExplorer';
 import { IAuthenticationService } from '../../../platform/authentication/common/authentication';
 import { IAuthenticationChatUpgradeService } from '../../../platform/authentication/common/authenticationUpgrade';
 import { getChatParticipantNameFromId } from '../../../platform/chat/common/chatAgents';
@@ -201,6 +203,14 @@ export class ChatParticipantRequestHandler {
 	}
 
 	async getResult(): Promise<ICopilotChatResult> {
+		// [EXPLORE] Entry point for a full chat turn
+		explorerTrace('CONVERSATION', 'ChatParticipantRequestHandler.getResult() called', {
+			agent: this.chatAgentArgs.agentName,
+			intentId: this.chatAgentArgs.intentId,
+			location: String(this.location),
+			promptLength: this.turn.request.message.length,
+			historyTurns: this.conversation.turns.length - 1,
+		});
 		if (await this._shouldAskForPermissiveAuth()) {
 			// Return a random response
 			return {
@@ -232,6 +242,8 @@ export class ChatParticipantRequestHandler {
 
 				const history = this.conversation.turns.slice(0, -1);
 				const intent = await this.selectIntent(command, history);
+				// [EXPLORE] Selected intent drives the whole response strategy
+				explorerTrace('CONVERSATION', 'Intent selected', { intentId: intent.id, hasHandleRequest: typeof intent.handleRequest === 'function' });
 
 				let chatResult: Promise<ChatResult>;
 				if (typeof intent.handleRequest === 'function') {

@@ -25,6 +25,32 @@
 			}
 		},
 		{
+			// [EXPLORATION] Enables debugExplorer.ts traces. Grep Debug Console for [EXPLORE] tags.
+			// See src/extension/extension/vscode/debugExplorer.ts for usage.
+			"type": "extensionHost",
+			"request": "launch",
+			"name": "Launch Copilot Extension (Exploration)",
+			"runtimeExecutable": "${execPath}",
+			"args": [
+				"--extensionDevelopmentPath=${workspaceFolder}"
+			],
+			"smartStep": true,
+			"sourceMaps": true,
+			"envFile": "${workspaceFolder}/.env",
+			"env": {
+				"COPILOT_LOG_TELEMETRY": "true",
+				"VSCODE_DEV_DEBUG": "1",
+				"COPILOT_EXPLORER_TRACE": "1",
+			},
+			"outFiles": [
+				"${workspaceFolder}/dist/**/*.js",
+				"!**/node_modules/**"
+			],
+			"presentation": {
+				"group": "0_launch"
+			}
+		},
+		{
 			"type": "extensionHost",
 			"request": "launch",
 			"name": "Launch Copilot Extension - Watch Mode",
