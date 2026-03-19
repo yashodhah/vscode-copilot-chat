@@ -390,6 +390,7 @@ function networkRequest(
 
 	const endpointFetchOptions = endpoint.getEndpointFetchOptions?.();
 	const request: FetchOptions = {
+		callSite: `network-request-${intent}`,
 		method: requestType,
 		headers: headers,
 		json: body,
@@ -440,6 +441,7 @@ export function canRetryOnceNetworkError(reason: any) {
 		'ERR_HTTP2_STREAM_CANCEL',
 		'ERR_HTTP2_GOAWAY_SESSION',
 		'ERR_HTTP2_PROTOCOL_ERROR',
+		'ERR_FAILED',
 	].includes(reason?.code);
 }
 

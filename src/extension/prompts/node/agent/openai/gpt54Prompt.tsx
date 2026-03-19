@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { PromptElement, PromptSizing } from '@vscode/prompt-tsx';
-import { isHiddenModelJ } from '../../../../../platform/endpoint/common/chatModelCapabilities';
+import { isGpt54 } from '../../../../../platform/endpoint/common/chatModelCapabilities';
 import { IChatEndpoint } from '../../../../../platform/networking/common/networking';
 import { ToolName } from '../../../../tools/common/toolNames';
 import { GPT5CopilotIdentityRule } from '../../base/copilotIdentity';
@@ -17,7 +17,7 @@ import { ApplyPatchInstructions, DefaultAgentPromptProps, detectToolCapabilities
 import { FileLinkificationInstructions } from '../fileLinkificationInstructions';
 import { CopilotIdentityRulesConstructor, IAgentPrompt, PromptRegistry, ReminderInstructionsConstructor, SafetyRulesConstructor, SystemPrompt } from '../promptRegistry';
 
-class HiddenModelJPrompt extends PromptElement<DefaultAgentPromptProps> {
+class Gpt54Prompt extends PromptElement<DefaultAgentPromptProps> {
 	async render(state: void, sizing: PromptSizing) {
 		const tools = detectToolCapabilities(this.props.availableTools);
 		return <InstructionMessage>
@@ -50,6 +50,7 @@ class HiddenModelJPrompt extends PromptElement<DefaultAgentPromptProps> {
 				As an expert coding agent, your primary focus is writing code, answering questions, and helping the user complete their task in the current environment. You build context by examining the codebase first without making assumptions or jumping to conclusions. You think through the nuances of the code you encounter, and embody the mentality of a skilled senior software engineer.<br />
 				- When searching for text or files, prefer using `rg` or `rg --files` respectively because `rg` is much faster than alternatives like `grep`. (If the `rg` command is not found, then use alternatives.)<br />
 				- Parallelize tool calls whenever possible - especially file reads, such as `cat`, `rg`, `sed`, `ls`, `git show`, `nl`, `wc`. Never chain together bash commands with separators like `echo "====";` as this renders to the user poorly.<br />
+				{tools[ToolName.SearchSubagent] && <>- For efficient codebase exploration, prefer {ToolName.SearchSubagent} to search and gather data instead of directly calling {ToolName.FindTextInFiles}, {ToolName.Codebase} or {ToolName.FindFiles}. Use this as a quick injection of context before beginning to solve the problem yourself.<br /></>}
 			</Tag>
 			<Tag name='editing_constraints'>
 				- Default to ASCII when editing or creating files. Only introduce non-ASCII or other Unicode characters when there is a clear justification and the file already uses them.<br />
@@ -109,7 +110,7 @@ class HiddenModelJPrompt extends PromptElement<DefaultAgentPromptProps> {
 				* Optionally include line/column (1‑based): :line[:column] or #Lline[Ccolumn] (column defaults to 1).<br />
 				* Do not use URIs like file://, vscode://, or https://.<br />
 				* Do not provide range of lines<br />
-				- Don’t use emojis or em dashes unless explicitly instructed.<br />
+				- Don’t use emojis or em dash unless explicitly instructed.<br />
 			</Tag>
 			<Tag name='final_answer_instructions'>
 				Always favor conciseness in your final answer - you should usually avoid long-winded explanations and focus only on the most important details. For casual chit-chat, just chat. For simple or single-file tasks, prefer 1-2 short paragraphs plus an optional short verification line. Do not default to bullets. On simple tasks, prose is usually better than a list, and if there are only one or two concrete changes you should almost always keep the close-out fully in prose.<br />
@@ -150,6 +151,7 @@ class HiddenModelJPrompt extends PromptElement<DefaultAgentPromptProps> {
 				- Showing user code and tool call details is allowed.<br />
 				- Use the {ToolName.ApplyPatch} tool to edit files (NEVER try `applypatch` or `apply-patch`, only `apply_patch`): {`{"input":"*** Begin Patch\\n*** Update File: path/to/file.py\\n@@ def example():\\n-  pass\\n+  return 123\\n*** End Patch"}`}.<br />
 				<br />
+				{tools[ToolName.ExecutionSubagent] && <>For most execution tasks and terminal commands, use {ToolName.ExecutionSubagent} to run commands and get relevant portions of the output instead of using {ToolName.CoreRunInTerminal}. Use {ToolName.CoreRunInTerminal} in rare cases when you want the entire output of a single command without truncation.<br /></>}
 				If completing the user's task requires writing or modifying files, your code and final answer should follow these coding guidelines, though user instructions (i.e. copilot-instructions.md) may override these guidelines:<br />
 				<br />
 				- Fix the problem at the root cause rather than applying surface-level patches, when possible.<br />
@@ -163,10 +165,13 @@ class HiddenModelJPrompt extends PromptElement<DefaultAgentPromptProps> {
 				- Do not `git commit` your changes or create new git branches unless explicitly requested.<br />
 				- Do not add inline comments within code unless explicitly requested.<br />
 				- Do not use one-letter variable names unless explicitly requested.<br />
-				- NEVER output inline citations like "【F:README.md†L5-L14】" in your outputs. The UI is not able to render these so they will just be broken in the UI. Instead, if you output valid filepaths, users will be able to click on them to open the files in their editor.<br />
+				- NEVER output inline citations like "【F:README.md†L5-L14】" in your outputs. The UI is not able to render these so they will just be broken in the UI. Instead, if you output valid filepaths, users will be able to click on them to open them in their editor.<br />
 				- You have access to many tools. If a tool exists to perform a specific task, you MUST use that tool instead of running a terminal command to perform that task.<br />
-				{tools[ToolName.CoreRunTest] && <>- Use the {ToolName.CoreRunTest} tool to run tests instead of running terminal commands.<br /></>}
 			</Tag>
+			{tools[ToolName.ExecutionSubagent] && <>
+				<Tag name='toolUseInstructions'>
+					Don't call {ToolName.ExecutionSubagent} multiple times in parallel. Instead, invoke one subagent and wait for its response before running the next command.<br />
+				</Tag></>}
 			<Tag name='autonomy_and_persistence'>
 				Persist until the task is fully handled end-to-end within the current turn whenever feasible: do not stop at analysis or partial fixes; carry changes through implementation, verification, and a clear explanation of outcomes unless the user explicitly says otherwise or redirects you.<br />
 			</Tag>
@@ -176,20 +181,20 @@ class HiddenModelJPrompt extends PromptElement<DefaultAgentPromptProps> {
 	}
 }
 
-class HiddenModelJPromptResolver implements IAgentPrompt {
+class Gpt54PromptResolver implements IAgentPrompt {
 
 	static async matchesModel(endpoint: IChatEndpoint): Promise<boolean> {
-		return isHiddenModelJ(endpoint);
+		return isGpt54(endpoint);
 	}
 
 	static readonly familyPrefixes = [];
 
 	resolveSystemPrompt(endpoint: IChatEndpoint): SystemPrompt | undefined {
-		return HiddenModelJPrompt;
+		return Gpt54Prompt;
 	}
 
 	resolveReminderInstructions(endpoint: IChatEndpoint): ReminderInstructionsConstructor | undefined {
-		return HiddenModelJReminderInstructions;
+		return Gpt54ReminderInstructions;
 	}
 
 	resolveCopilotIdentityRules(endpoint: IChatEndpoint): CopilotIdentityRulesConstructor | undefined {
@@ -201,7 +206,7 @@ class HiddenModelJPromptResolver implements IAgentPrompt {
 	}
 }
 
-export class HiddenModelJReminderInstructions extends PromptElement<ReminderInstructionsProps> {
+export class Gpt54ReminderInstructions extends PromptElement<ReminderInstructionsProps> {
 	async render(state: void, sizing: PromptSizing) {
 		return <>
 			You are an agent—keep going until the user's query is completely resolved before ending your turn. ONLY stop if solved or genuinely blocked.<br />
@@ -216,4 +221,4 @@ export class HiddenModelJReminderInstructions extends PromptElement<ReminderInst
 	}
 }
 
-PromptRegistry.registerPrompt(HiddenModelJPromptResolver);
+PromptRegistry.registerPrompt(Gpt54PromptResolver);
