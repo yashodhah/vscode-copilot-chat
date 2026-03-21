@@ -155,6 +155,7 @@ interface QueuedRequest {
 	readonly toolInvocationToken: vscode.ChatParticipantToolToken;
 	readonly token: vscode.CancellationToken;
 	readonly yieldRequested?: () => boolean;
+	readonly messageId: string;
 	readonly deferred: DeferredPromise<void>;
 }
 
@@ -370,6 +371,7 @@ export class ClaudeCodeSession extends Disposable {
 			toolInvocationToken,
 			token,
 			yieldRequested,
+			messageId: request.id,
 			deferred
 		};
 
@@ -594,7 +596,10 @@ export class ClaudeCodeSession extends Disposable {
 					content: request.prompt
 				},
 				parent_tool_use_id: null,
-				session_id: this.sessionId
+				session_id: this.sessionId,
+				// NOTE: messageId seems to be in the format request_<uuid> but it doesn't seem
+				// to be a problem to use as the message ID for the SDK.
+				uuid: request.messageId as `${string}-${string}-${string}-${string}-${string}`
 			};
 
 			// Wait for this request to complete before yielding the next one

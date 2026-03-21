@@ -1186,6 +1186,26 @@
 				}
 			},
 			{
+				"name": "copilot_resolveMemoryFileUri",
+				"displayName": "Resolve Memory File URI",
+				"toolReferenceName": "resolveMemoryFileUri",
+				"userDescription": "Resolve a memory file path to its actual URI",
+				"modelDescription": "Resolve a memory file path (like /memories/session/plan.md or /memories/repo/notes.md) to its fully qualified URI. Use this when you need the actual URI for a memory file, for example to pass it to setArtifacts. The path must start with /memories/.",
+				"tags": [],
+				"inputSchema": {
+					"type": "object",
+					"properties": {
+						"path": {
+							"type": "string",
+							"description": "The memory file path to resolve (e.g. /memories/session/plan.md)."
+						}
+					},
+					"required": [
+						"path"
+					]
+				}
+			},
+			{
 				"name": "copilot_editFiles",
 				"modelDescription": "This is a placeholder tool, do not use",
 				"userDescription": "Edit files",
@@ -1254,6 +1274,7 @@
 					"installExtension",
 					"memory",
 					"newWorkspace",
+					"resolveMemoryFileUri",
 					"runCommand",
 					"switchAgent",
 					"vscodeAPI"
@@ -2817,6 +2838,13 @@
 				"category": "GitHub Copilot"
 			},
 			{
+				"command": "github.copilot.chat.createPullRequestCopilotCLIAgentSession.updatePR",
+				"title": "%github.copilot.chat.createPullRequestCopilotCLIAgentSession.updatePR%",
+				"enablement": "!chatSessionRequestInProgress",
+				"icon": "$(git-pull-request)",
+				"category": "GitHub Copilot"
+			},
+			{
 				"command": "github.copilot.chat.createDraftPullRequestCopilotCLIAgentSession.createDraftPR",
 				"title": "%github.copilot.chat.createDraftPullRequestCopilotCLIAgentSession.createDraftPR%",
 				"enablement": "!chatSessionRequestInProgress",
@@ -3222,19 +3250,6 @@
 						"tags": [
 							"preview",
 							"onExp"
-						]
-					},
-					"github.copilot.chat.anthropic.thinking.effort": {
-						"type": "string",
-						"markdownDescription": "%github.copilot.config.anthropic.thinking.effort%",
-						"enum": [
-							"low",
-							"medium",
-							"high"
-						],
-						"default": "high",
-						"tags": [
-							"preview"
 						]
 					},
 					"github.copilot.chat.anthropic.thinking.forceExtendedThinking": {
@@ -3790,22 +3805,6 @@
 							"split"
 						]
 					},
-					"github.copilot.chat.responsesApiReasoningEffort": {
-						"type": "string",
-						"default": "default",
-						"markdownDescription": "%github.copilot.config.responsesApiReasoningEffort%",
-						"tags": [
-							"experimental",
-							"onExp"
-						],
-						"enum": [
-							"low",
-							"medium",
-							"high",
-							"xhigh",
-							"default"
-						]
-					},
 					"github.copilot.chat.responsesApiReasoningSummary": {
 						"type": "string",
 						"default": "detailed",
@@ -3993,6 +3992,16 @@
 			{
 				"id": "advanced",
 				"properties": {
+					"github.copilot.chat.anthropic.promptCaching.extendedTtl": {
+						"type": "boolean",
+						"markdownDescription": "%github.copilot.config.anthropic.promptCaching.extendedTtl%",
+						"default": false,
+						"tags": [
+							"advanced",
+							"experimental",
+							"onExp"
+						]
+					},
 					"github.copilot.chat.installExtensionSkill.enabled": {
 						"type": "boolean",
 						"default": false,
@@ -4527,24 +4536,6 @@
 							"experimental"
 						]
 					},
-					"github.copilot.chat.cli.customAgents.enabled": {
-						"type": "boolean",
-						"default": true,
-						"markdownDescription": "%github.copilot.config.cli.customAgents.enabled%",
-						"tags": [
-							"advanced",
-							"experimental"
-						]
-					},
-					"github.copilot.chat.cli.planMode.enabled": {
-						"type": "boolean",
-						"default": false,
-						"markdownDescription": "%github.copilot.config.cli.planMode.enabled%",
-						"tags": [
-							"advanced",
-							"experimental"
-						]
-					},
 					"github.copilot.chat.cli.mcp.enabled": {
 						"type": "boolean",
 						"default": true,
@@ -4858,12 +4849,12 @@
 			"chat/input/editing/sessionApplyActions": [
 				{
 					"command": "github.copilot.chat.mergeCopilotCLIAgentSessionChanges.merge",
-					"when": "chatSessionType == copilotcli && isSessionsWindow && !sessions.isMergeBaseBranchProtected",
+					"when": "chatSessionType == copilotcli && isSessionsWindow && !sessions.isMergeBaseBranchProtected && !sessions.hasOpenPullRequest",
 					"group": "merge@1"
 				},
 				{
 					"command": "github.copilot.chat.mergeCopilotCLIAgentSessionChanges.mergeAndSync",
-					"when": "chatSessionType == copilotcli && isSessionsWindow && !sessions.isMergeBaseBranchProtected",
+					"when": "chatSessionType == copilotcli && isSessionsWindow && !sessions.isMergeBaseBranchProtected && !sessions.hasOpenPullRequest",
 					"group": "merge@2"
 				},
 				{
@@ -4875,6 +4866,11 @@
 					"command": "github.copilot.chat.createDraftPullRequestCopilotCLIAgentSession.createDraftPR",
 					"when": "chatSessionType == copilotcli && isSessionsWindow && !sessions.hasOpenPullRequest",
 					"group": "pull_request@2"
+				},
+				{
+					"command": "github.copilot.chat.createPullRequestCopilotCLIAgentSession.updatePR",
+					"when": "chatSessionType == copilotcli && isSessionsWindow && sessions.hasOpenPullRequest",
+					"group": "pull_request@1"
 				}
 			],
 			"chat/contextUsage/actions": [
@@ -5181,6 +5177,10 @@
 				},
 				{
 					"command": "github.copilot.chat.createPullRequestCopilotCLIAgentSession.createPR",
+					"when": "false"
+				},
+				{
+					"command": "github.copilot.chat.createPullRequestCopilotCLIAgentSession.updatePR",
 					"when": "false"
 				},
 				{
@@ -5973,6 +5973,14 @@
 						"description": "Complete a security review of the pending changes on the current branch"
 					},
 					{
+						"name": "simplify",
+						"description": "Review changed code for reuse, quality, and efficiency"
+					},
+					{
+						"name": "claude-api",
+						"description": "Help building with Claude API or Anthropic SDK"
+					},
+					{
 						"name": "agents",
 						"description": "Create and manage specialized Claude agents"
 					},
@@ -6330,5 +6338,5 @@
 		"node-gyp": "npm:node-gyp@10.3.1",
 		"zod": "3.25.76"
 	},
-	"vscodeCommit": "631a8bb1fd9d262e926340015fb4eef442758c0a"
+	"vscodeCommit": "55969564bb5637a0fe1bdf5a665c5c5f21723407"
 }
