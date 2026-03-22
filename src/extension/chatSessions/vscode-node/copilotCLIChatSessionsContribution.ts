@@ -166,9 +166,13 @@ export class CopilotCLIChatSessionItemProvider extends Disposable implements vsc
 	public readonly useController: boolean;
 	private readonly controller: vscode.ChatSessionItemController | undefined;
 	private readonly _newSessionIds = new Set<string>();
+	private static readonly _PR_DETECTION_RECHECK_INTERVAL = 60_000; // ms before re-checking a session that had no PR
 	private readonly _prDetectionDelayer = this._register(new ThrottledDelayer<void>(2000));
 	private readonly _prDetectionPendingSessions = new Map<string, { branchName: string; repositoryPath: string }>();
-	private readonly _prDetectionCompletedSessions = new Set<string>();
+	/** Sessions where a PR was found and persisted — permanently skip further detection. */
+	private readonly _prDetectionDone = new Set<string>();
+	/** Sessions checked without finding a PR — stores the timestamp so we can re-check after a cooldown. */
+	private readonly _prDetectionLastChecked = new Map<string, number>();
 
 	constructor(
 		@ICopilotCLISessionService private readonly copilotcliSessionService: ICopilotCLISessionService,
@@ -230,6 +234,7 @@ export class CopilotCLIChatSessionItemProvider extends Disposable implements vsc
 			};
 			this._register(this.copilotcliSessionService.onDidDeleteSession(async (e) => {
 				controller.items.delete(SessionIdForCLI.getResource(e));
+				this.clearPrDetectionState(e);
 			}));
 			this._register(this.copilotcliSessionService.onDidChangeSession(async (e) => {
 				const item = await this.toChatSessionItem(e);
@@ -263,15 +268,25 @@ export class CopilotCLIChatSessionItemProvider extends Disposable implements vsc
 		this._onDidChangeChatSessionItems.fire();
 	}
 
+	private clearPrDetectionState(sessionId: string): void {
+		this._prDetectionPendingSessions.delete(sessionId);
+		this._prDetectionDone.delete(sessionId);
+		this._prDetectionLastChecked.delete(sessionId);
+	}
+
 	public async refreshSession(refreshOptions: { reason: 'update'; sessionId: string } | { reason: 'delete'; sessionId: string }): Promise<void> {
+		if (!this.controller) {
+			return;
+		}
+
 		if (refreshOptions.reason === 'delete') {
 			const uri = SessionIdForCLI.getResource(refreshOptions.sessionId);
-			this.controller!.items.delete(uri);
+			this.controller.items.delete(uri);
 		} else {
 			const item = await this.copilotcliSessionService.getSessionItem(refreshOptions.sessionId, CancellationToken.None);
 			if (item) {
 				const chatSessionItem = await this.toChatSessionItem(item);
-				this.controller!.items.add(chatSessionItem);
+				this.controller.items.add(chatSessionItem);
 			}
 		}
 	}
@@ -423,7 +438,6 @@ export class CopilotCLIChatSessionItemProvider extends Disposable implements vsc
 		this._prDetectionPendingSessions.clear();
 
 		for (const [sessionId, { branchName, repositoryPath }] of pending) {
-			this._prDetectionCompletedSessions.add(sessionId);
 			try {
 				const prUrl = await detectPullRequestFromGitHubAPI(
 					branchName,
@@ -444,9 +458,17 @@ export class CopilotCLIChatSessionItemProvider extends Disposable implements vsc
 						await this.worktreeManager.setWorktreeProperties(sessionId, updated);
 						this.notifySessionsChange();
 					}
+
+					// Mark permanently only after the PR URL has been persisted successfully.
+					this._prDetectionDone.add(sessionId);
+					this._prDetectionLastChecked.delete(sessionId);
+				} else {
+					// No PR yet — record the timestamp so we can re-check after a cooldown.
+					this._prDetectionLastChecked.set(sessionId, Date.now());
 				}
 			} catch (error) {
-				this.logService.debug(`[CopilotCLIChatSessionItemProvider] Failed to detect pull request via GitHub API for session ${sessionId}: ${error instanceof Error ? error.message : String(error)}`);
+				// Do not record a timestamp — the session will be retried on the next refresh.
+				this.logService.debug(`[CopilotCLIChatSessionItemProvider] Failed to detect pull request via GitHub API for session ${sessionId}, will retry: ${error instanceof Error ? error.message : String(error)}`);
 			}
 		}
 	}
@@ -462,13 +484,30 @@ export class CopilotCLIChatSessionItemProvider extends Disposable implements vsc
 		worktreeProperties: Awaited<ReturnType<IChatSessionWorktreeService['getWorktreeProperties']>>,
 		changes: readonly vscode.ChatSessionChangedFile2[],
 	): boolean {
-		return status === vscode.ChatSessionStatus.Completed
-			&& worktreeProperties?.version === 2
-			&& !worktreeProperties.pullRequestUrl
-			&& !!worktreeProperties.branchName
-			&& !!worktreeProperties.repositoryPath
-			&& changes.length > 0
-			&& !this._prDetectionCompletedSessions.has(sessionId);
+		if (status !== vscode.ChatSessionStatus.Completed
+			|| worktreeProperties?.version !== 2
+			|| worktreeProperties.pullRequestUrl
+			|| !worktreeProperties.branchName
+			|| !worktreeProperties.repositoryPath
+			|| changes.length === 0) {
+			return false;
+		}
+
+		// Skip sessions where a PR was already found.
+		if (this._prDetectionDone.has(sessionId)) {
+			return false;
+		}
+
+		// Allow re-checking after a cooldown so PRs created after session completion are detected.
+		const lastChecked = this._prDetectionLastChecked.get(sessionId);
+		if (lastChecked !== undefined) {
+			const elapsed = Date.now() - lastChecked;
+			if (elapsed < CopilotCLIChatSessionItemProvider._PR_DETECTION_RECHECK_INTERVAL) {
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	public async createCopilotCLITerminal(location: TerminalOpenLocation = 'editor', name?: string, cwd?: string): Promise<void> {
@@ -1401,8 +1440,8 @@ export class CopilotCLIChatSessionParticipant extends Disposable {
 				return {};
 			}
 
-			// Check whether the worktree supports checkpoints. Either this is a new session and the checkpoint setting is
-			// enabled, or this is an existing session and the checkpoint setting was enabled when the session was created.
+			// Check whether the worktree supports checkpoints. Either this is a new session and the auto-commit setting is
+			// disabled, or this is an existing session and the auto-commit setting was disabled when the session was created.
 			if (await this.copilotCLIWorktreeCheckpointService.getWorktreeCheckpointSupport(session.object.sessionId)) {
 				// Create baseline checkpoint for the session (if needed)
 				await this.copilotCLIWorktreeCheckpointService.handleRequest(session.object.sessionId);
@@ -1452,7 +1491,8 @@ export class CopilotCLIChatSessionParticipant extends Disposable {
 				await session.object.handleRequest(request, input, [], model, authInfo, token);
 				await this.commitWorktreeChangesIfNeeded(request, session.object, token);
 			} else if (request.prompt && Object.values(builtinSlashSCommands).includes(request.prompt)) {
-				await session.object.handleRequest(request, { prompt: request.prompt }, [], model, authInfo, token);
+				const { prompt, attachments } = await this.promptResolver.resolvePrompt(request, undefined, [], session.object.workspace, [], token);
+				await session.object.handleRequest(request, { prompt }, attachments, model, authInfo, token);
 				await this.commitWorktreeChangesIfNeeded(request, session.object, token);
 			} else {
 				// Construct the full prompt with references to be sent to CLI.
@@ -2425,10 +2465,10 @@ export function registerCLIChatCommands(
 			resource,
 			prompt: builtinSlashSCommands.updatePr,
 			attachedContext: [{
-				id: pullRequestUrl,
-				value: pullRequestUrl,
-				icon: new vscode.ThemeIcon('git-pull-request'),
+				id: 'github-pull-request',
 				fullName: pullRequestUrl,
+				icon: new vscode.ThemeIcon('git-pull-request'),
+				value: vscode.Uri.parse(pullRequestUrl),
 				kind: 'generic'
 			}]
 		});

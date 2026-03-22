@@ -30,13 +30,14 @@ interface ChatSessionWorktreeBaseProperties {
 	readonly changes?: readonly ChatSessionWorktreeFile[] | undefined;
 }
 
-interface ChatSessionWorktreePropertiesV1 extends ChatSessionWorktreeBaseProperties {
+export interface ChatSessionWorktreePropertiesV1 extends ChatSessionWorktreeBaseProperties {
 	readonly version: 1;
 	readonly autoCommit: boolean;
 }
 
-interface ChatSessionWorktreePropertiesV2 extends ChatSessionWorktreeBaseProperties {
+export interface ChatSessionWorktreePropertiesV2 extends ChatSessionWorktreeBaseProperties {
 	readonly version: 2;
+	readonly autoCommit?: boolean;
 	readonly baseBranchName: string;
 	readonly baseBranchProtected?: boolean;
 	readonly pullRequestUrl?: string;
